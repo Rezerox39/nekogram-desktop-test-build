@@ -1,0 +1,113 @@
+diff --git a/Telegram/CMakeLists.txt b/Telegram/CMakeLists.txt
+index 1c76dfa..a9f80de 100644
+--- a/Telegram/CMakeLists.txt
++++ b/Telegram/CMakeLists.txt
+@@ -1443,8 +1443,14 @@ PRIVATE
+     lang/translate_mtproto_provider.h
+     lang/translate_provider.cpp
+     lang/translate_provider.h
++    lang/translate_nekogram_provider.cpp
++    lang/translate_nekogram_provider.h
+     lang/translate_url_provider.cpp
+     lang/translate_url_provider.h
++    neko/neko_config.cpp
++    neko/neko_config.h
++    neko/neko_translate_settings.cpp
++    neko/neko_translate_settings.h
+     layout/layout_document_generic_preview.cpp
+     layout/layout_document_generic_preview.h
+     layout/layout_item_base.cpp
+diff --git a/Telegram/Resources/langs/lang.strings b/Telegram/Resources/langs/lang.strings
+index d57a556..e65f064 100644
+--- a/Telegram/Resources/langs/lang.strings
++++ b/Telegram/Resources/langs/lang.strings
+@@ -8754,4 +8754,18 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ "lng_rich_paste_toast_undo" = "Undo";
+ "lng_rich_paste_toast_apply" = "Apply";
+ 
++// Nekogram Desktop - Translation Settings
++"lng_neko_translation_settings" = "Nekogram Translation";
++"lng_neko_translation_provider" = "Translation Provider";
++"lng_neko_target_language" = "Target Language";
++"lng_neko_system_language" = "System language";
++"lng_neko_deepL_key_configured" = "DeepL API Key: configured";
++"lng_neko_deepL_key_not_set" = "DeepL API Key: not set";
++"lng_neko_deepL_key_title" = "DeepL API Key";
++"lng_neko_deepL_key_placeholder" = "DeepL API key (free from deepl.com)";
++
++"lng_neko_provider_google" = "Google Translate (free)";
++"lng_neko_provider_deepl" = "DeepL (free, needs API key)";
++"lng_neko_provider_telegram" = "Telegram MTProto (Premium)";
++
+ // Keys finished
+diff --git a/Telegram/SourceFiles/lang/translate_provider.cpp b/Telegram/SourceFiles/lang/translate_provider.cpp
+index ff6e43e..b80f9c3 100644
+--- a/Telegram/SourceFiles/lang/translate_provider.cpp
++++ b/Telegram/SourceFiles/lang/translate_provider.cpp
+@@ -15,7 +15,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ #include "data/data_session.h"
+ #include "history/history_item.h"
+ #include "lang/translate_mtproto_provider.h"
++#include "lang/translate_nekogram_provider.h"
+ #include "lang/translate_url_provider.h"
++#include "neko/neko_config.h"
+ #include "platform/platform_translate_provider.h"
+ 
+ namespace {
+@@ -33,15 +35,24 @@ namespace Ui {
+ 
+ std::unique_ptr<TranslateProvider> CreateTranslateProvider(
+ 		not_null<Main::Session*> session) {
++	// 1. Explicit URL template takes priority (stock behaviour).
+ 	const auto urlTemplate = OptionTranslateUrlTemplate.value();
+ 	if (!urlTemplate.isEmpty()
+ 		&& urlTemplate.contains(u"%q"_q)) {
+ 		return CreateUrlTranslateProvider(urlTemplate);
+ 	}
++	// 2. Platform translation (CrowTranslate on Linux, etc.).
+ 	if (Core::App().settings().usePlatformTranslation()
+ 		&& Platform::IsTranslateProviderAvailable()) {
+ 		return Platform::CreateTranslateProvider();
+ 	}
++	// 3. Nekogram external provider (Google / DeepL).
++	//    Bypasses Premium-gated MTProto translation entirely.
++	const auto nekoType = Neko::translateProviderType();
++	if (nekoType != Neko::TranslateProviderType::Telegram) {
++		return CreateNekoTranslateProvider();
++	}
++	// 4. Fallback: Telegram MTProto (requires Premium on server side).
+ 	return CreateMTProtoTranslateProvider(session);
+ }
+ 
+diff --git a/Telegram/SourceFiles/settings/sections/settings_main.cpp b/Telegram/SourceFiles/settings/sections/settings_main.cpp
+index d4f3633..550447e 100644
+--- a/Telegram/SourceFiles/settings/sections/settings_main.cpp
++++ b/Telegram/SourceFiles/settings/sections/settings_main.cpp
+@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
+ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ */
+ #include "settings/sections/settings_main.h"
++#include "neko/neko_translate_settings.h"
+ 
+ #include "settings/settings_common_session.h"
+ 
+@@ -468,6 +469,19 @@ void BuildSectionButtons(SectionBuilder &builder) {
+ 		},
+ 		.keywords = { u"translate"_q, u"localization"_q, u"language"_q },
+ 	});
++
++	builder.addButton({
++		.id = u"main/nekogram_translation"_q,
++		.title = tr::lng_neko_translation_settings(),
++		.icon = { &st::menuIconTranslate },
++		.label = tr::lng_neko_translation_settings(),
++		.onClick = [=] {
++			// Open the Nekogram translation settings box directly from
++			// the Settings → Language/Translate row.
++			controller->show(Box(NekoTranslationSettingsBox));
++		},
++		.keywords = { u"translate"_q, u"nekogram"_q, u"translation"_q, u"language"_q },
++	});
+ }
+ 
+ void BuildInterfaceScale(SectionBuilder &builder) {

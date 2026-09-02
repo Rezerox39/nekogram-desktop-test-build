@@ -1,9 +1,5 @@
 # Nekogram Desktop — Temporary Public Windows Test Build
 # NON_PRODUCTION_TEST_BUILD_NO_CRASH_REPORTS
-#
-# This workflow builds a test Windows executable from the official tdesktop
-# source with Nekogram-inspired free translation features patched in.
-# Crash reporting is disabled. This is NOT a production build.
 
 name: Nekogram Desktop Windows Test Build
 
@@ -23,22 +19,20 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      # ── Preflight ──────────────────────────────────────────────────────
-      - name: Preflight checks
+      - name: Checkout test-build repo
+        uses: actions/checkout@v4
+
+      - name: Verify checkout
         shell: bash
         run: |
-          echo "=== Runner info ==="
-          echo "OS: $(uname -a)"
-          echo "Disk free:"
-          df -h /d 2>/dev/null || df -h .
-          echo "Python: $(python --version 2>&1)"
-          echo "CMake: $(cmake --version 2>&1 | head -1)"
-          echo "Git: $(git --version)"
-          echo ""
-          echo "=== This is a NON_PRODUCTION_TEST_BUILD_NO_CRASH_REPORTS ==="
-          echo "Crash reporting is DISABLED. Do not use for production."
+          echo "=== GITHUB_WORKSPACE: $GITHUB_WORKSPACE ==="
+          echo "=== Files in workspace ==="
+          ls -la "$GITHUB_WORKSPACE/"
+          echo "=== Files in patches ==="
+          ls -la "$GITHUB_WORKSPACE/patches/"
+          echo "=== Patch file exists ==="
+          test -f "$GITHUB_WORKSPACE/patches/p03b.patch" && echo "YES" || echo "NO"
 
-      # ── Setup ──────────────────────────────────────────────────────────
       - name: Install Python 3.10+
         uses: actions/setup-python@v5
         with:
@@ -56,10 +50,7 @@ jobs:
           git checkout "$TDESKTOP_COMMIT"
           echo "=== tdesktop commit ==="
           git rev-parse HEAD
-          echo "=== Verifying submodules ==="
-          git submodule status | head -10
 
-      # ── Apply P0-3b patch ─────────────────────────────────────────────
       - name: Apply P0-3b patch and copy source files
         shell: bash
         run: |
@@ -87,7 +78,6 @@ jobs:
           echo "=== Verifying patch ==="
           git diff --check
 
-      # ── Remove breakpad stage (ATL not available on GitHub runners) ───
       - name: Remove breakpad stage from prepare.py
         shell: python
         run: |
@@ -106,7 +96,6 @@ jobs:
           p.write_text(content)
           print("breakpad stage removed successfully")
 
-      # ── Build ──────────────────────────────────────────────────────────
       - name: Build via vcvars + prepare + configure + cmake
         shell: cmd
         run: |
@@ -132,7 +121,6 @@ jobs:
 
           echo === BUILD SUCCEEDED ===
 
-      # ── Collect and package ────────────────────────────────────────────
       - name: Collect build artifacts
         if: success()
         shell: bash
@@ -148,29 +136,23 @@ jobs:
           echo "=== Packaging test build ==="
           mkdir -p artifact
           cp out/Release/Telegram.exe artifact/
-          # Copy supporting files (DLLs, etc.) if they exist
           find out/Release -maxdepth 1 -name "*.dll" -exec cp {} artifact/ \; 2>/dev/null || true
           find out/Release -maxdepth 1 -name "*.exe" ! -name "Telegram.exe" -exec cp {} artifact/ \; 2>/dev/null || true
 
-          # Copy documentation
           cp "$GITHUB_WORKSPACE/patches/p03b.patch" artifact/
           cp "$GITHUB_WORKSPACE/docs/P03B_WINDOWS_RUNTIME_TEST.md" artifact/
 
-          # Create ZIP
           cd artifact
           7z a "../nekogram-desktop-p03b-windows-test.zip" * || \
             powershell -Command "Compress-Archive -Path * -DestinationPath '../nekogram-desktop-p03b-windows-test.zip'"
 
           echo "=== ZIP contents ==="
           cd ..
-          7z l nekogram-desktop-p03b-windows-test.zip 2>/dev/null || \
-            powershell -Command "(Get-ChildItem nekogram-desktop-p03b-windows-test.zip).Length"
+          7z l nekogram-desktop-p03b-windows-test.zip 2>/dev/null || echo "ZIP created"
 
-          echo "=== Secret scan on ZIP ==="
-          # Check for any accidental secrets in the artifact
-          grep -r "github_pat_\|ghp_\|sk-\|api_key=" artifact/ 2>/dev/null || echo "No secrets found in artifact"
+          echo "=== Secret scan on artifact ==="
+          grep -r "github_pat_\|ghp_\|sk-\|api_key=" artifact/ 2>/dev/null || echo "No secrets found"
 
-      # ── Upload ─────────────────────────────────────────────────────────
       - name: Upload test build artifact
         if: success()
         uses: actions/upload-artifact@v4
@@ -180,7 +162,6 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      # ── Failure logs ───────────────────────────────────────────────────
       - name: Upload build logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

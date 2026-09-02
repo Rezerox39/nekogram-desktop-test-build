@@ -17,6 +17,9 @@ jobs:
     name: Windows x64 Test Build (no-breakpad)
     runs-on: windows-latest
     timeout-minutes: 360
+    env:
+      TDESKTOP_API_ID: ${{ secrets.TDESKTOP_API_ID }}
+      TDESKTOP_API_HASH: ${{ secrets.TDESKTOP_API_HASH }}
 
     steps:
       - name: Checkout test-build repo
@@ -26,12 +29,8 @@ jobs:
         shell: bash
         run: |
           echo "=== GITHUB_WORKSPACE: $GITHUB_WORKSPACE ==="
-          echo "=== Files in workspace ==="
-          ls -la "$GITHUB_WORKSPACE/"
-          echo "=== Files in patches ==="
           ls -la "$GITHUB_WORKSPACE/patches/"
-          echo "=== Patch file exists ==="
-          test -f "$GITHUB_WORKSPACE/patches/p03b.patch" && echo "YES" || echo "NO"
+          test -f "$GITHUB_WORKSPACE/patches/p03b.patch" && echo "Patch found" || echo "ERROR: Patch missing"
 
       - name: Install Python 3.10+
         uses: actions/setup-python@v5
@@ -55,15 +54,11 @@ jobs:
         shell: bash
         run: |
           cd "$GITHUB_WORKSPACE/tdesktop"
-
-          # Apply the diff patch
           git apply --verbose "$GITHUB_WORKSPACE/patches/p03b.patch"
           if [ $? -ne 0 ]; then
             echo "ERROR: Patch failed to apply!"
             exit 1
           fi
-
-          # Copy the new source files
           mkdir -p Telegram/SourceFiles/neko
           for f in neko_config.h neko_config.cpp neko_translate_settings.h neko_translate_settings.cpp; do
             cp "$GITHUB_WORKSPACE/patches/$f" "Telegram/SourceFiles/neko/$f"
@@ -71,11 +66,9 @@ jobs:
           for f in translate_nekogram_provider.h translate_nekogram_provider.cpp; do
             cp "$GITHUB_WORKSPACE/patches/$f" "Telegram/SourceFiles/lang/$f"
           done
-
           echo "=== Files placed ==="
           ls -la Telegram/SourceFiles/neko/
           ls -la Telegram/SourceFiles/lang/translate_nekogram_provider.*
-          echo "=== Verifying patch ==="
           git diff --check
 
       - name: Remove breakpad stage from prepare.py
@@ -110,7 +103,8 @@ jobs:
           call "build\prepare\win.bat" silent
           if errorlevel 1 (echo ERROR: prepare failed & exit /b 1)
 
-          echo === CONFIGURE (test API credentials + no crash reports) ===
+          echo === CONFIGURE ===
+          echo API_ID=%TDESKTOP_API_ID% API_HASH=%TDESKTOP_API_HASH%
           call configure.bat x64 -D TDESKTOP_API_ID=%TDESKTOP_API_ID% -D TDESKTOP_API_HASH=%TDESKTOP_API_HASH% -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
           if errorlevel 1 (echo ERROR: configure failed & exit /b 1)
 
@@ -132,25 +126,20 @@ jobs:
             echo "ERROR: Telegram.exe not found in out/Release/"
             exit 1
           fi
-
           echo "=== Packaging test build ==="
           mkdir -p artifact
           cp out/Release/Telegram.exe artifact/
           find out/Release -maxdepth 1 -name "*.dll" -exec cp {} artifact/ \; 2>/dev/null || true
           find out/Release -maxdepth 1 -name "*.exe" ! -name "Telegram.exe" -exec cp {} artifact/ \; 2>/dev/null || true
-
           cp "$GITHUB_WORKSPACE/patches/p03b.patch" artifact/
           cp "$GITHUB_WORKSPACE/docs/P03B_WINDOWS_RUNTIME_TEST.md" artifact/
-
           cd artifact
           7z a "../nekogram-desktop-p03b-windows-test.zip" * || \
             powershell -Command "Compress-Archive -Path * -DestinationPath '../nekogram-desktop-p03b-windows-test.zip'"
-
-          echo "=== ZIP contents ==="
           cd ..
-          7z l nekogram-desktop-p03b-windows-test.zip 2>/dev/null || echo "ZIP created"
-
-          echo "=== Secret scan on artifact ==="
+          echo "=== ZIP created ==="
+          ls -la nekogram-desktop-p03b-windows-test.zip
+          echo "=== Secret scan ==="
           grep -r "github_pat_\|ghp_\|sk-\|api_key=" artifact/ 2>/dev/null || echo "No secrets found"
 
       - name: Upload test build artifact

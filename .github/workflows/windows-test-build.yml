@@ -15,7 +15,7 @@ env:
 jobs:
   windows-build:
     name: Windows x64 Test Build (no-breakpad)
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 360
     env:
       TDESKTOP_API_ID: ${{ secrets.TDESKTOP_API_ID }}
